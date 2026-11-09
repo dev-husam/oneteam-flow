@@ -1,0 +1,40 @@
+name: Weekly backup restore test
+
+# Runs against STAGING backups stored in object storage. Requires the secrets below.
+on:
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+jobs:
+  restore-test:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root_ci_password
+          MYSQL_USER: pt
+          MYSQL_PASSWORD: pt_ci_password
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -uroot -proot_ci_password"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+    env:
+      MYSQL_HOST: 127.0.0.1
+      MYSQL_USER: root
+      MYSQL_PASSWORD: root_ci_password
+      MYSQL_DATABASE: pt_staging
+      BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+      BACKUP_DIR: ${{ runner.temp }}/backups
+      AWS_ACCESS_KEY_ID: ${{ secrets.BACKUP_S3_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_S3_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download the newest backup
+        run: |
+          mkdir -p "$BACKUP_DIR"
+          latest=$(aws s3 ls "s3://${{ secrets.BACKUP_S3_BUCKET }}/mysql/" --endpoint-url "${{ secrets.BACKUP_S3_ENDPOINT }}" | sort | tail -n1 | awk '{print $4}')
+          aws s3 cp "s3://${{ secrets.BACKUP_S3_BUCKET }}/mysql/$latest" "$BACKUP_DIR/" --endpoint-url "${{ secrets.BACKUP_S3_ENDPOINT }}"
+      - name: Restore into a scratch database and verify
+        run: infra/backup/restore-test.sh

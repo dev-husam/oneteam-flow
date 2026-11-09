@@ -1,0 +1,58 @@
+- generic [active] [ref=f4e1]:
+  - generic [ref=f4e91]:
+    - link "Skip to content" [ref=f4e92] [cursor=pointer]:
+      - /url: "#main"
+    - complementary [ref=f4e93]:
+      - generic [ref=f4e94]:
+        - generic [ref=f4e95]: Personal Trainer
+        - navigation "Main navigation" [ref=f4e100]:
+          - link "Dashboard" [ref=f4e101] [cursor=pointer]:
+            - /url: /en/dashboard
+          - link "Profile" [ref=f4e107] [cursor=pointer]:
+            - /url: /en/profile
+          - link "Security" [ref=f4e111] [cursor=pointer]:
+            - /url: /en/security
+    - generic [ref=f4e115]:
+      - banner [ref=f4e116]:
+        - generic [ref=f4e117]:
+          - radiogroup "Language" [ref=f4e118]:
+            - radio "English" [checked] [ref=f4e119]
+            - radio "العربية" [ref=f4e120]
+          - radiogroup "Theme" [ref=f4e121]:
+            - radio "Light" [ref=f4e122]
+            - radio "System" [checked] [ref=f4e129]
+            - radio "Dark" [ref=f4e132]
+          - button "User menu" [ref=f4e136]:
+            - generic [ref=f4e137]: SA
+            - generic [ref=f4e138]: Sara Ahmed
+      - main [ref=f4e141]:
+        - generic [ref=f4e143]:
+          - heading "Welcome, Sara" [level=1] [ref=f4e144]
+          - paragraph [ref=f4e145]: Here is where things stand with your account.
+        - generic [ref=f4e146]:
+          - generic [ref=f4e147]:
+            - heading "Next steps" [level=2] [ref=f4e149]
+            - list [ref=f4e151]:
+              - listitem [ref=f4e152]:
+                - paragraph [ref=f4e157]: Email confirmed
+              - listitem [ref=f4e158]:
+                - generic [ref=f4e161]:
+                  - paragraph [ref=f4e162]: Complete your profile
+                  - paragraph [ref=f4e163]: Add your phone number, language, time zone and units.
+                - link "Open profile" [ref=f4e164] [cursor=pointer]:
+                  - /url: /en/profile
+              - listitem [ref=f4e165]:
+                - generic [ref=f4e168]:
+                  - paragraph [ref=f4e169]: Review your signed-in devices
+                  - paragraph [ref=f4e170]: See where you are signed in and sign out anywhere you do not recognize.
+                - link "Open security" [ref=f4e171] [cursor=pointer]:
+                  - /url: /en/security
+          - generic [ref=f4e172]:
+            - generic [ref=f4e178]:
+              - paragraph [ref=f4e179]: 1 active session
+              - generic [ref=f4e180]: ACTIVE
+            - generic [ref=f4e186]:
+              - heading "You are not part of an organization yet" [level=3] [ref=f4e192]
+              - paragraph [ref=f4e193]: Organizations, invitations and teams arrive in the next release. Your account is ready.
+  - button "Open Next.js Dev Tools" [ref=f4e86] [cursor=pointer]
+  - alert [ref=f4e90]: Welcome, Sara

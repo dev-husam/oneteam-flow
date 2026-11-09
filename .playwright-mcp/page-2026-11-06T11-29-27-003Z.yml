@@ -1,0 +1,50 @@
+- generic [ref=f1e1]:
+  - generic [ref=f1e2]:
+    - complementary [ref=f1e3]:
+      - generic [ref=f1e4]: Personal Trainer
+      - generic [ref=f1e9]:
+        - heading "Run your business, coach your people, track real progress." [level=2] [ref=f1e10]
+        - list [ref=f1e11]:
+          - listitem [ref=f1e12]:
+            - generic [ref=f1e16]:
+              - paragraph [ref=f1e17]: One platform, every team
+              - paragraph [ref=f1e18]: Fitness, education, coaching and business teams share one secure foundation.
+          - listitem [ref=f1e19]:
+            - generic [ref=f1e24]:
+              - paragraph [ref=f1e25]: Your data stays yours
+              - paragraph [ref=f1e26]: Every organization is isolated, and access follows roles you control.
+          - listitem [ref=f1e27]:
+            - generic [ref=f1e31]:
+              - paragraph [ref=f1e32]: Web and mobile
+              - paragraph [ref=f1e33]: The same account works on the web and on iOS and Android.
+      - paragraph [ref=f1e34]: © 2026 Personal Trainer
+    - main [ref=f1e35]:
+      - generic [ref=f1e37]:
+        - radiogroup "Language" [ref=f1e38]:
+          - radio "English" [checked] [ref=f1e39]
+          - radio "العربية" [ref=f1e40]
+        - radiogroup "Theme" [ref=f1e41]:
+          - radio "Light" [ref=f1e42]
+          - radio "System" [checked] [ref=f1e49]
+          - radio "Dark" [ref=f1e52]
+      - generic [ref=f1e57]:
+        - generic [ref=f1e58]:
+          - heading "Welcome back" [level=1] [ref=f1e59]
+          - paragraph [ref=f1e60]: Sign in to continue to your workspace.
+        - generic [ref=f1e61]:
+          - generic [ref=f1e62]:
+            - generic [ref=f1e63]: Email address
+            - textbox "Email address" [active] [ref=f1e65]
+          - generic [ref=f1e66]:
+            - generic [ref=f1e67]: Password
+            - generic [ref=f1e70]:
+              - textbox "Password" [ref=f1e71]
+              - button "Show" [ref=f1e72]
+          - link "Forgot password?" [ref=f1e77] [cursor=pointer]:
+            - /url: /en/forgot-password
+          - button "Sign in" [ref=f1e78]
+        - paragraph [ref=f1e79]:
+          - text: New here?
+          - link "Create an account" [ref=f1e80] [cursor=pointer]:
+            - /url: /en/register
+  - button "Open Next.js Dev Tools" [ref=f1e86] [cursor=pointer]

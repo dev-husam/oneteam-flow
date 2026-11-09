@@ -1,0 +1,36 @@
+- generic [active] [ref=f2e1]:
+  - generic [ref=f2e2]:
+    - complementary [ref=f2e3]:
+      - generic [ref=f2e4]: Personal Trainer
+      - generic [ref=f2e9]:
+        - heading "Run your business, coach your people, track real progress." [level=2] [ref=f2e10]
+        - list [ref=f2e11]:
+          - listitem [ref=f2e12]:
+            - generic [ref=f2e16]:
+              - paragraph [ref=f2e17]: One platform, every team
+              - paragraph [ref=f2e18]: Fitness, education, coaching and business teams share one secure foundation.
+          - listitem [ref=f2e19]:
+            - generic [ref=f2e24]:
+              - paragraph [ref=f2e25]: Your data stays yours
+              - paragraph [ref=f2e26]: Every organization is isolated, and access follows roles you control.
+          - listitem [ref=f2e27]:
+            - generic [ref=f2e31]:
+              - paragraph [ref=f2e32]: Web and mobile
+              - paragraph [ref=f2e33]: The same account works on the web and on iOS and Android.
+      - paragraph [ref=f2e34]: © 2026 Personal Trainer
+    - main [ref=f2e35]:
+      - generic [ref=f2e37]:
+        - radiogroup "Language" [ref=f2e38]:
+          - radio "English" [checked] [ref=f2e39]
+          - radio "العربية" [ref=f2e40]
+        - radiogroup "Theme" [ref=f2e41]:
+          - radio "Light" [ref=f2e42]
+          - radio "System" [checked] [ref=f2e49]
+          - radio "Dark" [ref=f2e52]
+      - generic [ref=f2e57]:
+        - heading "Check your inbox" [level=1] [ref=f2e102]
+        - paragraph [ref=f2e103]: If this email can be used, we sent a message with a link to confirm your address.
+        - link "Sign in" [ref=f2e104] [cursor=pointer]:
+          - /url: /en/login
+  - button "Open Next.js Dev Tools" [ref=f2e93] [cursor=pointer]
+  - alert [ref=f2e97]

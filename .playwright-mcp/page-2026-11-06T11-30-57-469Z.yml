@@ -1,0 +1,56 @@
+- generic [active] [ref=f6e1]:
+  - generic [ref=f6e16]:
+    - link "Skip to content" [ref=f6e17] [cursor=pointer]:
+      - /url: "#main"
+    - complementary [ref=f6e18]:
+      - generic [ref=f6e19]:
+        - generic [ref=f6e20]: Personal Trainer
+        - navigation "Main navigation" [ref=f6e25]:
+          - link "Dashboard" [ref=f6e26] [cursor=pointer]:
+            - /url: /en/dashboard
+          - link "Profile" [ref=f6e32] [cursor=pointer]:
+            - /url: /en/profile
+          - link "Security" [ref=f6e36] [cursor=pointer]:
+            - /url: /en/security
+    - generic [ref=f6e40]:
+      - banner [ref=f6e41]:
+        - generic [ref=f6e42]:
+          - radiogroup "Language" [ref=f6e43]:
+            - radio "English" [checked] [ref=f6e44]
+            - radio "العربية" [ref=f6e45]
+          - radiogroup "Theme" [ref=f6e46]:
+            - radio "Light" [ref=f6e47]
+            - radio "System" [checked] [ref=f6e54]
+            - radio "Dark" [ref=f6e57]
+          - button "User menu" [ref=f6e61]:
+            - generic [ref=f6e62]: SA
+            - generic [ref=f6e63]: Sara Ahmed
+      - main [ref=f6e66]:
+        - generic [ref=f6e67]:
+          - generic [ref=f6e68]:
+            - heading "Security" [level=1] [ref=f6e69]
+            - paragraph [ref=f6e70]: Devices where your account is signed in.
+          - button "Sign out everywhere" [ref=f6e72]
+        - generic [ref=f6e73]:
+          - generic [ref=f6e74]:
+            - heading "Active sessions" [level=2] [ref=f6e75]
+            - paragraph [ref=f6e76]: This also signs out this device.
+          - list [ref=f6e78]:
+            - listitem [ref=f6e79]:
+              - generic [ref=f6e84]:
+                - paragraph [ref=f6e85]:
+                  - text: Web browser
+                  - generic [ref=f6e86]: This device
+                - paragraph [ref=f6e87]:
+                  - text: Last active now
+                  - generic [ref=f6e88]: · ::1
+  - generic [ref=f6e10] [cursor=pointer]:
+    - button "Open Next.js Dev Tools" [ref=f6e11]
+    - generic [ref=f6e89]:
+      - button "Open issues overlay" [ref=f6e90]:
+        - generic [ref=f6e91]:
+          - generic [aria-hidden] [ref=f6e92]: "0"
+          - generic [ref=f6e93]: "1"
+        - generic [ref=f6e94]: Issue
+      - button "Collapse issues badge" [ref=f6e95]
+  - alert [ref=f6e15]

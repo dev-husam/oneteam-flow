@@ -1,0 +1,1805 @@
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  PENDING_DELETION
+}
+
+enum UnitSystem {
+  METRIC
+  IMPERIAL
+}
+
+enum ClientType {
+  WEB
+  IOS
+  ANDROID
+}
+
+enum OneTimeTokenPurpose {
+  EMAIL_VERIFY
+  PASSWORD_RESET
+}
+
+/// Global platform user. Never tied to a single organization (memberships arrive in Phase 2).
+model User {
+  id              String     @id @default(uuid(7)) @db.Char(36)
+  email           String     @unique @db.VarChar(254)
+  phone           String?    @unique @db.VarChar(32)
+  fullName        String     @map("full_name") @db.VarChar(120)
+  passwordHash    String?    @map("password_hash") @db.VarChar(255)
+  status          UserStatus @default(ACTIVE)
+  emailVerifiedAt DateTime?  @map("email_verified_at") @db.DateTime(3)
+  phoneVerifiedAt DateTime?  @map("phone_verified_at") @db.DateTime(3)
+  locale          String     @default("en") @db.VarChar(8)
+  timezone        String     @default("UTC") @db.VarChar(64)
+  unitSystem      UnitSystem @default(METRIC) @map("unit_system")
+  lastLoginAt     DateTime?  @map("last_login_at") @db.DateTime(3)
+  mfaEnabled      Boolean    @default(false) @map("mfa_enabled")
+  /// The design this person picked for themselves (see DesignTheme.userSelectable); cleared if that design is deleted.
+  designKey       String?    @map("design_key") @db.VarChar(40)
+  createdAt       DateTime   @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt       DateTime   @updatedAt @map("updated_at") @db.DateTime(3)
+
+  sessions         UserSession[]
+  oneTimeTokens    OneTimeToken[]
+  consentRecords   ConsentRecord[]
+  memberships      Membership[]
+  mfaFactor        MfaFactor?
+  design           DesignTheme?             @relation(fields: [designKey], references: [key], onDelete: SetNull)
+  mfaRecoveryCodes MfaRecoveryCode[]
+  platformRoles    PlatformRoleAssignment[]
+
+  pushDevices             PushDevice[]
+  notifications           Notification[]
+  notificationPreferences NotificationPreference[]
+
+  @@map("users")
+}
+
+/// One row per signed-in device. Refresh tokens rotate inside a session; revoking the session kills them all.
+model UserSession {
+  id            String     @id @default(uuid(7)) @db.Char(36)
+  userId        String     @map("user_id") @db.Char(36)
+  clientType    ClientType @map("client_type")
+  deviceName    String?    @map("device_name") @db.VarChar(120)
+  ip            String?    @db.VarChar(64)
+  userAgent     String?    @map("user_agent") @db.VarChar(255)
+  lastUsedAt    DateTime   @default(now()) @map("last_used_at") @db.DateTime(3)
+  revokedAt     DateTime?  @map("revoked_at") @db.DateTime(3)
+  revokeReason  String?    @map("revoke_reason") @db.VarChar(64)
+  /// Set when this session passed the second factor (login step 2 or enrollment). Platform routes require it.
+  mfaVerifiedAt DateTime?  @map("mfa_verified_at") @db.DateTime(3)
+  createdAt     DateTime   @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt     DateTime   @updatedAt @map("updated_at") @db.DateTime(3)
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokens RefreshToken[]
+
+  @@index([userId, revokedAt])
+  @@map("user_sessions")
+}
+
+/// Only the SHA-256 hash of the opaque token is stored. A row with usedAt set must never be presented again.
+model RefreshToken {
+  id           String    @id @default(uuid(7)) @db.Char(36)
+  sessionId    String    @map("session_id") @db.Char(36)
+  tokenHash    String    @unique @map("token_hash") @db.Char(64)
+  issuedAt     DateTime  @default(now()) @map("issued_at") @db.DateTime(3)
+  expiresAt    DateTime  @map("expires_at") @db.DateTime(3)
+  usedAt       DateTime? @map("used_at") @db.DateTime(3)
+  replacedById String?   @map("replaced_by_id") @db.Char(36)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  session UserSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+model OneTimeToken {
+  id         String              @id @default(uuid(7)) @db.Char(36)
+  userId     String              @map("user_id") @db.Char(36)
+  purpose    OneTimeTokenPurpose
+  tokenHash  String              @unique @map("token_hash") @db.Char(64)
+  expiresAt  DateTime            @map("expires_at") @db.DateTime(3)
+  consumedAt DateTime?           @map("consumed_at") @db.DateTime(3)
+  createdAt  DateTime            @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt  DateTime            @updatedAt @map("updated_at") @db.DateTime(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+  @@index([expiresAt])
+  @@map("one_time_tokens")
+}
+
+/// Evidence of what a user accepted and when (terms, privacy, health-data consent). organization_id arrives in Phase 2.
+model ConsentRecord {
+  id              String   @id @default(uuid(7)) @db.Char(36)
+  userId          String   @map("user_id") @db.Char(36)
+  documentKey     String   @map("document_key") @db.VarChar(64)
+  documentVersion String   @map("document_version") @db.VarChar(32)
+  organizationId  String?  @map("organization_id") @db.Char(36)
+  acceptedAt      DateTime @default(now()) @map("accepted_at") @db.DateTime(3)
+  ip              String?  @db.VarChar(64)
+  createdAt       DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id])
+
+  @@index([userId, documentKey])
+  @@map("consent_records")
+}
+
+// ============================================================================ Phase 2: platform catalog
+
+enum CatalogStatus {
+  ENABLED
+  DISABLED
+}
+
+enum PermissionScopeType {
+  PLATFORM
+  ORGANIZATION
+}
+
+enum GrantScope {
+  OWN
+  ASSIGNED
+  ORG
+  ALL
+}
+
+model BusinessCategory {
+  id        String        @id @default(uuid(7)) @db.Char(36)
+  key       String        @unique @db.VarChar(40)
+  nameI18n  Json          @map("name_i18n")
+  status    CatalogStatus @default(DISABLED)
+  sortOrder Int           @default(0) @map("sort_order")
+  createdAt DateTime      @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt DateTime      @updatedAt @map("updated_at") @db.DateTime(3)
+
+  organizations Organization[]
+  modules       CategoryModule[]
+
+  @@map("business_categories")
+}
+
+model PlatformModule {
+  id        String        @id @default(uuid(7)) @db.Char(36)
+  key       String        @unique @db.VarChar(40)
+  nameI18n  Json          @map("name_i18n")
+  status    CatalogStatus @default(DISABLED)
+  createdAt DateTime      @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt DateTime      @updatedAt @map("updated_at") @db.DateTime(3)
+
+  categories    CategoryModule[]
+  organizations OrganizationModule[]
+
+  @@map("platform_modules")
+}
+
+model CategoryModule {
+  categoryId     String  @map("category_id") @db.Char(36)
+  moduleId       String  @map("module_id") @db.Char(36)
+  defaultEnabled Boolean @default(true) @map("default_enabled")
+
+  category BusinessCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  module   PlatformModule   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@id([categoryId, moduleId])
+  @@map("category_modules")
+}
+
+model Permission {
+  id            String              @id @default(uuid(7)) @db.Char(36)
+  code          String              @unique @db.VarChar(80)
+  scopeType     PermissionScopeType @map("scope_type")
+  groupKey      String              @map("group_key") @db.VarChar(40)
+  moduleKey     String?             @map("module_key") @db.VarChar(40)
+  description   String              @db.VarChar(255)
+  /// JSON array of GrantScope values a role may use for this permission.
+  allowedScopes Json                @map("allowed_scopes")
+  createdAt     DateTime            @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt     DateTime            @updatedAt @map("updated_at") @db.DateTime(3)
+
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+/// organizationId NULL = system template (immutable). scopeKey = organizationId, "system" or "platform":
+/// it makes (scopeKey, key) unique even though MySQL allows duplicate NULLs.
+model Role {
+  id             String              @id @default(uuid(7)) @db.Char(36)
+  organizationId String?             @map("organization_id") @db.Char(36)
+  scopeKey       String              @map("scope_key") @db.VarChar(40)
+  key            String              @db.VarChar(60)
+  name           String              @db.VarChar(80)
+  scopeType      PermissionScopeType @map("scope_type")
+  rank           Int
+  isSystem       Boolean             @default(false) @map("is_system")
+  templateRoleId String?             @map("template_role_id") @db.Char(36)
+  createdAt      DateTime            @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt      DateTime            @updatedAt @map("updated_at") @db.DateTime(3)
+
+  organization        Organization?            @relation(fields: [organizationId], references: [id])
+  template            Role?                    @relation("RoleTemplate", fields: [templateRoleId], references: [id])
+  clones              Role[]                   @relation("RoleTemplate")
+  permissions         RolePermission[]
+  memberships         Membership[]
+  invitations         Invitation[]
+  platformAssignments PlatformRoleAssignment[]
+
+  @@unique([scopeKey, key])
+  @@index([organizationId])
+  @@map("roles")
+}
+
+model RolePermission {
+  roleId       String     @map("role_id") @db.Char(36)
+  permissionId String     @map("permission_id") @db.Char(36)
+  grantScope   GrantScope @map("grant_scope")
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model PlatformRoleAssignment {
+  userId          String   @map("user_id") @db.Char(36)
+  roleId          String   @map("role_id") @db.Char(36)
+  grantedByUserId String?  @map("granted_by_user_id") @db.Char(36)
+  grantedAt       DateTime @default(now()) @map("granted_at") @db.DateTime(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id])
+
+  @@id([userId, roleId])
+  @@map("platform_role_assignments")
+}
+
+// ============================================================================ Phase 2: tenancy
+
+enum OrganizationStatus {
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+}
+
+enum MembershipStatus {
+  ACTIVE
+  SUSPENDED
+  REMOVED
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
+enum AssignmentKind {
+  PRIMARY
+  SECONDARY
+}
+
+model Organization {
+  id              String             @id @default(uuid(7)) @db.Char(36)
+  name            String             @db.VarChar(120)
+  slug            String             @unique @db.VarChar(40)
+  categoryId      String             @map("category_id") @db.Char(36)
+  description     String?            @db.VarChar(1000)
+  contactEmail    String?            @map("contact_email") @db.VarChar(254)
+  contactPhone    String?            @map("contact_phone") @db.VarChar(32)
+  timezone        String             @default("UTC") @db.VarChar(64)
+  defaultLocale   String             @default("en") @map("default_locale") @db.VarChar(8)
+  /// 0 = Sunday … 6 = Saturday. Used for check-in weeks.
+  weekStartsOn    Int                @default(1) @map("week_starts_on")
+  status          OrganizationStatus @default(ACTIVE)
+  createdByUserId String             @map("created_by_user_id") @db.Char(36)
+  /// Reserved for Phase 9 (billing); intentionally no foreign key yet.
+  subscriptionRef String?            @map("subscription_ref") @db.VarChar(64)
+  createdAt       DateTime           @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt       DateTime           @updatedAt @map("updated_at") @db.DateTime(3)
+
+  category                 BusinessCategory              @relation(fields: [categoryId], references: [id])
+  modules                  OrganizationModule[]
+  roles                    Role[]
+  memberships              Membership[]
+  invitations              Invitation[]
+  groups                   Group[]
+  assignments              MemberAssignment[]
+  consentRecords           ConsentRecord[]
+  tasks                    Task[]
+  files                    File[]
+  metrics                  MetricDefinition[]
+  notifications            Notification[]
+  fitExercises             FitExercise[]
+  fitProfiles              FitClientProfile[]
+  fitPlans                 FitWorkoutPlan[]
+  fitPlanVersions          FitWorkoutPlanVersion[]
+  fitDays                  FitWorkoutDay[]
+  fitDayExercises          FitWorkoutDayExercise[]
+  fitAssignments           FitWorkoutAssignment[]
+  fitSessions              FitWorkoutSession[]
+  fitSetLogs               FitWorkoutSetLog[]
+  fitNutritionPlans        FitNutritionPlan[]
+  fitNutritionVersions     FitNutritionPlanVersion[]
+  fitNutritionDays         FitNutritionDay[]
+  fitMeals                 FitMeal[]
+  fitMealItems             FitMealItem[]
+  fitNutritionAssignments  FitNutritionAssignment[]
+  fitMealLogs              FitMealLog[]
+  fitMealLogPhotos         FitMealLogPhoto[]
+  fitCheckins              FitCheckin[]
+  fitCheckinComments       FitCheckinComment[]
+  fitProgressPhotos        FitProgressPhoto[]
+  fitReminderMarks         FitReminderMark[]
+  conversations            Conversation[]
+  featureOverrides         OrganizationFeatureOverride[]
+  coachSessions            CoachSession[]
+  coachNotes               CoachNote[]
+  coachTemplates           CoachAssessmentTemplate[]
+  coachAssessments         CoachAssessment[]
+  coachResources           CoachResource[]
+  design                   OrganizationDesign?
+  conversationParticipants ConversationParticipant[]
+  messages                 Message[]
+  messageAttachments       MessageAttachment[]
+  messageBlocks            MessageBlock[]
+  messageReports           MessageReport[]
+
+  @@index([categoryId, status])
+  @@map("organizations")
+}
+
+model OrganizationModule {
+  organizationId String   @map("organization_id") @db.Char(36)
+  moduleId       String   @map("module_id") @db.Char(36)
+  enabled        Boolean  @default(true)
+  enabledAt      DateTime @default(now()) @map("enabled_at") @db.DateTime(3)
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  module       PlatformModule @relation(fields: [moduleId], references: [id])
+
+  @@id([organizationId, moduleId])
+  @@map("organization_modules")
+}
+
+model Membership {
+  id             String           @id @default(uuid(7)) @db.Char(36)
+  organizationId String           @map("organization_id") @db.Char(36)
+  userId         String           @map("user_id") @db.Char(36)
+  /// System templates have no organization, so this cannot be a composite FK; the service validates that the
+  /// role is either a system role or belongs to the same organization (covered by tests).
+  roleId         String           @map("role_id") @db.Char(36)
+  status         MembershipStatus @default(ACTIVE)
+  invitationId   String?          @map("invitation_id") @db.Char(36)
+  joinedAt       DateTime         @default(now()) @map("joined_at") @db.DateTime(3)
+  removedAt      DateTime?        @map("removed_at") @db.DateTime(3)
+  /// One organization per account: equals `userId` while the membership is ACTIVE or SUSPENDED and NULL once it is
+  /// REMOVED. The unique index makes a second live membership impossible, whatever code path tries to create one.
+  activeUserKey  String?          @unique @map("active_user_key") @db.Char(36)
+  createdAt      DateTime         @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt      DateTime         @updatedAt @map("updated_at") @db.DateTime(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+  role         Role         @relation(fields: [roleId], references: [id])
+
+  invitationsSent    Invitation[]       @relation("InvitationInviter")
+  groupsCreated      Group[]            @relation("GroupCreator")
+  groupMemberships   GroupMember[]
+  asPractitioner     MemberAssignment[] @relation("AssignmentPractitioner")
+  asParticipant      MemberAssignment[] @relation("AssignmentParticipant")
+  assignmentsCreated MemberAssignment[] @relation("AssignmentCreator")
+
+  tasksCreated    Task[]           @relation("TaskCreator")
+  taskAssignments TaskAssignment[] @relation("TaskAssignee")
+  taskComments    TaskComment[]    @relation("TaskCommentAuthor")
+  filesUploaded   File[]           @relation("FileUploader")
+  metricsAbout    MetricRecord[]   @relation("MetricSubject")
+  metricsRecorded MetricRecord[]   @relation("MetricRecorder")
+  goalsAbout      Goal[]           @relation("GoalSubject")
+  goalsCreated    Goal[]           @relation("GoalCreator")
+  activityActed   ActivityEvent[]  @relation("ActivityActor")
+  activityAbout   ActivityEvent[]  @relation("ActivitySubject")
+
+  fitProfile                 FitClientProfile?
+  fitPlansCreated            FitWorkoutPlan[]          @relation("FitPlanCreator")
+  fitAssignmentsAsClient     FitWorkoutAssignment[]    @relation("FitAssignmentClient")
+  fitAssignmentsMade         FitWorkoutAssignment[]    @relation("FitAssignmentAssigner")
+  fitSessions                FitWorkoutSession[]       @relation("FitSessionClient")
+  fitNutritionPlansCreated   FitNutritionPlan[]        @relation("FitNutritionPlanCreator")
+  fitNutritionAsClient       FitNutritionAssignment[]  @relation("FitNutritionClient")
+  fitNutritionAssigned       FitNutritionAssignment[]  @relation("FitNutritionAssigner")
+  fitMealLogsAsClient        FitMealLog[]              @relation("FitMealLogClient")
+  fitCheckinsAsClient        FitCheckin[]              @relation("FitCheckinClient")
+  fitCheckinsReviewed        FitCheckin[]              @relation("FitCheckinReviewer")
+  fitCheckinComments         FitCheckinComment[]       @relation("FitCheckinCommentAuthor")
+  fitPhotos                  FitProgressPhoto[]        @relation("FitPhotoClient")
+  coachSessionsAsCoach       CoachSession[]            @relation("CoachSessionCoach")
+  coachSessionsAsClient      CoachSession[]            @relation("CoachSessionClient")
+  coachNotesAbout            CoachNote[]               @relation("CoachNoteClient")
+  coachNotesWritten          CoachNote[]               @relation("CoachNoteAuthor")
+  coachTemplatesCreated      CoachAssessmentTemplate[] @relation("CoachTemplateCreator")
+  coachAssessmentsAsClient   CoachAssessment[]         @relation("CoachAssessmentClient")
+  coachAssessmentsRequested  CoachAssessment[]         @relation("CoachAssessmentRequester")
+  coachResourcesCreated      CoachResource[]           @relation("CoachResourceCreator")
+  coachResourcesForMe        CoachResource[]           @relation("CoachResourceClient")
+  conversationsCreated       Conversation[]            @relation("ConversationCreator")
+  conversationParticipations ConversationParticipant[]
+  messagesSent               Message[]                 @relation("MessageSender")
+  blocksMade                 MessageBlock[]            @relation("BlockBlocker")
+  blocksReceived             MessageBlock[]            @relation("BlockBlocked")
+  reportsMade                MessageReport[]           @relation("ReportReporter")
+  reportsAgainst             MessageReport[]           @relation("ReportReported")
+  reportsResolved            MessageReport[]           @relation("ReportResolver")
+
+  @@unique([organizationId, userId])
+  @@unique([organizationId, id])
+  @@index([userId, status])
+  @@index([roleId])
+  @@map("memberships")
+}
+
+model Invitation {
+  id                    String           @id @default(uuid(7)) @db.Char(36)
+  organizationId        String           @map("organization_id") @db.Char(36)
+  email                 String           @db.VarChar(254)
+  phone                 String?          @db.VarChar(32)
+  roleId                String           @map("role_id") @db.Char(36)
+  invitedByMembershipId String           @map("invited_by_membership_id") @db.Char(36)
+  tokenHash             String           @unique @map("token_hash") @db.Char(64)
+  status                InvitationStatus @default(PENDING)
+  expiresAt             DateTime         @map("expires_at") @db.DateTime(3)
+  acceptedAt            DateTime?        @map("accepted_at") @db.DateTime(3)
+  acceptedByUserId      String?          @map("accepted_by_user_id") @db.Char(36)
+  /// Prefill and follow-up actions applied on acceptance: { fullName?, assignToMembershipId?, groupIds? }
+  payload               Json?
+  createdAt             DateTime         @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt             DateTime         @updatedAt @map("updated_at") @db.DateTime(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  role         Role         @relation(fields: [roleId], references: [id])
+  invitedBy    Membership   @relation("InvitationInviter", fields: [organizationId, invitedByMembershipId], references: [organizationId, id])
+
+  @@unique([organizationId, id])
+  @@index([organizationId, email, status])
+  @@index([organizationId, status, createdAt])
+  @@map("invitations")
+}
+
+model Group {
+  id                    String    @id @default(uuid(7)) @db.Char(36)
+  organizationId        String    @map("organization_id") @db.Char(36)
+  name                  String    @db.VarChar(120)
+  description           String?   @db.VarChar(1000)
+  typeKey               String?   @map("type_key") @db.VarChar(40)
+  createdByMembershipId String    @map("created_by_membership_id") @db.Char(36)
+  archivedAt            DateTime? @map("archived_at") @db.DateTime(3)
+  createdAt             DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  createdBy    Membership    @relation("GroupCreator", fields: [organizationId, createdByMembershipId], references: [organizationId, id])
+  members      GroupMember[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, archivedAt])
+  @@map("groups")
+}
+
+model GroupMember {
+  groupId        String   @map("group_id") @db.Char(36)
+  membershipId   String   @map("membership_id") @db.Char(36)
+  organizationId String   @map("organization_id") @db.Char(36)
+  addedAt        DateTime @default(now()) @map("added_at") @db.DateTime(3)
+
+  group      Group      @relation(fields: [organizationId, groupId], references: [organizationId, id], onDelete: Cascade)
+  membership Membership @relation(fields: [organizationId, membershipId], references: [organizationId, id])
+
+  @@id([groupId, membershipId])
+  @@index([organizationId, membershipId])
+  @@map("group_members")
+}
+
+/// practitioner -> participant relationship (trainer-client, teacher-student, coach-client).
+/// activeKey is set while the assignment is active and NULL once ended; its unique index guarantees
+/// one active PRIMARY per participant and no duplicate SECONDARY pairs.
+model MemberAssignment {
+  id                       String         @id @default(uuid(7)) @db.Char(36)
+  organizationId           String         @map("organization_id") @db.Char(36)
+  practitionerMembershipId String         @map("practitioner_membership_id") @db.Char(36)
+  participantMembershipId  String         @map("participant_membership_id") @db.Char(36)
+  kind                     AssignmentKind @default(PRIMARY)
+  activeKey                String?        @map("active_key") @db.VarChar(100)
+  startedAt                DateTime       @default(now()) @map("started_at") @db.DateTime(3)
+  endedAt                  DateTime?      @map("ended_at") @db.DateTime(3)
+  createdByMembershipId    String         @map("created_by_membership_id") @db.Char(36)
+  createdAt                DateTime       @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt                DateTime       @updatedAt @map("updated_at") @db.DateTime(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  practitioner Membership   @relation("AssignmentPractitioner", fields: [organizationId, practitionerMembershipId], references: [organizationId, id])
+  participant  Membership   @relation("AssignmentParticipant", fields: [organizationId, participantMembershipId], references: [organizationId, id])
+  createdBy    Membership   @relation("AssignmentCreator", fields: [organizationId, createdByMembershipId], references: [organizationId, id])
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, activeKey])
+  @@index([organizationId, practitionerMembershipId, endedAt])
+  @@index([organizationId, participantMembershipId, endedAt])
+  @@map("member_assignments")
+}
+
+// ============================================================================ Phase 2: audit and MFA
+
+enum AuditActorType {
+  USER
+  SUPER_ADMIN
+  SYSTEM
+}
+
+/// Append-only. No foreign keys on purpose: audit rows must survive anonymization and organization purges.
+model AuditLog {
+  id             String         @id @default(uuid(7)) @db.Char(36)
+  organizationId String?        @map("organization_id") @db.Char(36)
+  actorUserId    String?        @map("actor_user_id") @db.Char(36)
+  actorType      AuditActorType @map("actor_type")
+  action         String         @db.VarChar(80)
+  targetType     String?        @map("target_type") @db.VarChar(40)
+  targetId       String?        @map("target_id") @db.Char(36)
+  metadata       Json?
+  ip             String?        @db.VarChar(64)
+  userAgent      String?        @map("user_agent") @db.VarChar(255)
+  requestId      String?        @map("request_id") @db.VarChar(64)
+  createdAt      DateTime       @default(now()) @map("created_at") @db.DateTime(3)
+
+  @@index([organizationId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model MfaFactor {
+  id           String    @id @default(uuid(7)) @db.Char(36)
+  userId       String    @unique @map("user_id") @db.Char(36)
+  /// AES-256-GCM encrypted TOTP secret (iv.tag.ciphertext, base64url).
+  secretEnc    String    @map("secret_enc") @db.VarChar(255)
+  confirmedAt  DateTime? @map("confirmed_at") @db.DateTime(3)
+  /// Highest accepted time step; a code can never be used twice (replay protection).
+  lastUsedStep BigInt?   @map("last_used_step")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("mfa_factors")
+}
+
+model MfaRecoveryCode {
+  id        String    @id @default(uuid(7)) @db.Char(36)
+  userId    String    @map("user_id") @db.Char(36)
+  codeHash  String    @unique @map("code_hash") @db.Char(64)
+  usedAt    DateTime? @map("used_at") @db.DateTime(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("mfa_recovery_codes")
+}
+
+// ============================================================================ Phase 4: push devices
+
+enum DevicePlatform {
+  IOS
+  ANDROID
+}
+
+/// One row per installed app instance that may receive push notifications (Expo push token).
+/// A token belongs to exactly one user at a time: registering it again moves it to the current user.
+model PushDevice {
+  id            String         @id @default(uuid(7)) @db.Char(36)
+  userId        String         @map("user_id") @db.Char(36)
+  platform      DevicePlatform
+  expoPushToken String         @unique @map("expo_push_token") @db.VarChar(255)
+  locale        String         @default("en") @db.VarChar(8)
+  lastSeenAt    DateTime       @default(now()) @map("last_seen_at") @db.DateTime(3)
+  revokedAt     DateTime?      @map("revoked_at") @db.DateTime(3)
+  createdAt     DateTime       @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt     DateTime       @updatedAt @map("updated_at") @db.DateTime(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@map("push_devices")
+}
+
+// ============================================================================ Phase 5: shared capabilities
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskStatus {
+  OPEN
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+enum TaskAssignmentStatus {
+  PENDING
+  IN_PROGRESS
+  DONE
+}
+
+enum FileSensitivity {
+  STANDARD
+  SENSITIVE
+}
+
+enum FileStatus {
+  PENDING_UPLOAD
+  READY
+  REJECTED
+}
+
+enum GoalDirection {
+  INCREASE
+  DECREASE
+}
+
+enum GoalStatus {
+  ACTIVE
+  ACHIEVED
+  ABANDONED
+}
+
+enum NotificationChannel {
+  IN_APP
+  PUSH
+  EMAIL
+}
+
+model Task {
+  id                    String       @id @default(uuid(7)) @db.Char(36)
+  organizationId        String       @map("organization_id") @db.Char(36)
+  /// Extensible kind ("general", later module-specific such as "fitness.checkin"). Not an enum on purpose.
+  typeKey               String       @default("general") @map("type_key") @db.VarChar(60)
+  title                 String       @db.VarChar(200)
+  description           String?      @db.Text
+  priority              TaskPriority @default(MEDIUM)
+  status                TaskStatus   @default(OPEN)
+  dueAt                 DateTime?    @map("due_at") @db.DateTime(3)
+  completedAt           DateTime?    @map("completed_at") @db.DateTime(3)
+  createdByMembershipId String       @map("created_by_membership_id") @db.Char(36)
+  /// Optimistic concurrency: edits must present the version they read.
+  version               Int          @default(1)
+  deletedAt             DateTime?    @map("deleted_at") @db.DateTime(3)
+  createdAt             DateTime     @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt             DateTime     @updatedAt @map("updated_at") @db.DateTime(3)
+
+  organization Organization     @relation(fields: [organizationId], references: [id])
+  createdBy    Membership       @relation("TaskCreator", fields: [organizationId, createdByMembershipId], references: [organizationId, id])
+  assignments  TaskAssignment[]
+  comments     TaskComment[]
+  attachments  TaskAttachment[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, status, dueAt])
+  @@index([organizationId, createdByMembershipId])
+  @@map("tasks")
+}
+
+/// One row per assignee. A group assignment is expanded into its members when the task is created.
+model TaskAssignment {
+  id                   String               @id @default(uuid(7)) @db.Char(36)
+  organizationId       String               @map("organization_id") @db.Char(36)
+  taskId               String               @map("task_id") @db.Char(36)
+  assigneeMembershipId String               @map("assignee_membership_id") @db.Char(36)
+  sourceGroupId        String?              @map("source_group_id") @db.Char(36)
+  status               TaskAssignmentStatus @default(PENDING)
+  completedAt          DateTime?            @map("completed_at") @db.DateTime(3)
+  createdAt            DateTime             @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt            DateTime             @updatedAt @map("updated_at") @db.DateTime(3)
+
+  task     Task       @relation(fields: [organizationId, taskId], references: [organizationId, id])
+  assignee Membership @relation("TaskAssignee", fields: [organizationId, assigneeMembershipId], references: [organizationId, id])
+
+  @@unique([taskId, assigneeMembershipId])
+  @@unique([organizationId, id])
+  @@index([organizationId, assigneeMembershipId, status])
+  @@map("task_assignments")
+}
+
+model TaskComment {
+  id                 String    @id @default(uuid(7)) @db.Char(36)
+  organizationId     String    @map("organization_id") @db.Char(36)
+  taskId             String    @map("task_id") @db.Char(36)
+  authorMembershipId String    @map("author_membership_id") @db.Char(36)
+  body               String    @db.Text
+  editedAt           DateTime? @map("edited_at") @db.DateTime(3)
+  deletedAt          DateTime? @map("deleted_at") @db.DateTime(3)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  task   Task       @relation(fields: [organizationId, taskId], references: [organizationId, id])
+  author Membership @relation("TaskCommentAuthor", fields: [organizationId, authorMembershipId], references: [organizationId, id])
+
+  @@unique([organizationId, id])
+  @@index([taskId, createdAt])
+  @@map("task_comments")
+}
+
+model TaskAttachment {
+  taskId         String   @map("task_id") @db.Char(36)
+  fileId         String   @map("file_id") @db.Char(36)
+  organizationId String   @map("organization_id") @db.Char(36)
+  createdAt      DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  task Task @relation(fields: [organizationId, taskId], references: [organizationId, id])
+  file File @relation(fields: [organizationId, fileId], references: [organizationId, id])
+
+  @@id([taskId, fileId])
+  @@index([organizationId, fileId])
+  @@map("task_attachments")
+}
+
+/// Metadata of an object in storage. The bytes never touch MySQL.
+model File {
+  id                   String          @id @default(uuid(7)) @db.Char(36)
+  organizationId       String          @map("organization_id") @db.Char(36)
+  uploaderMembershipId String          @map("uploader_membership_id") @db.Char(36)
+  storageKey           String          @unique @map("storage_key") @db.VarChar(255)
+  originalName         String          @map("original_name") @db.VarChar(255)
+  mimeType             String          @map("mime_type") @db.VarChar(100)
+  sizeBytes            BigInt          @map("size_bytes")
+  sensitivity          FileSensitivity @default(STANDARD)
+  status               FileStatus      @default(PENDING_UPLOAD)
+  rejectReason         String?         @map("reject_reason") @db.VarChar(120)
+  deletedAt            DateTime?       @map("deleted_at") @db.DateTime(3)
+  createdAt            DateTime        @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt            DateTime        @updatedAt @map("updated_at") @db.DateTime(3)
+
+  organization   Organization        @relation(fields: [organizationId], references: [id])
+  uploader       Membership          @relation("FileUploader", fields: [organizationId, uploaderMembershipId], references: [organizationId, id])
+  taskLinks      TaskAttachment[]
+  mealLogPhotos  FitMealLogPhoto[]
+  progressPhoto  FitProgressPhoto?
+  coachResources CoachResource[]
+  messageLinks   MessageAttachment[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, createdAt])
+  @@map("files")
+}
+
+/// organizationId NULL = system metric defined by a module manifest (e.g. fitness weight); otherwise custom.
+model MetricDefinition {
+  id             String   @id @default(uuid(7)) @db.Char(36)
+  organizationId String?  @map("organization_id") @db.Char(36)
+  scopeKey       String   @map("scope_key") @db.VarChar(40)
+  key            String   @db.VarChar(60)
+  name           String   @db.VarChar(120)
+  unit           String   @db.VarChar(20)
+  precision      Int      @default(2)
+  higherIsBetter Boolean? @map("higher_is_better")
+  moduleKey      String?  @map("module_key") @db.VarChar(40)
+  createdAt      DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+
+  organization Organization?  @relation(fields: [organizationId], references: [id])
+  records      MetricRecord[]
+  goals        Goal[]
+
+  @@unique([scopeKey, key])
+  @@map("metric_definitions")
+}
+
+/// Immutable time series. A correction voids the wrong record and adds a new one.
+model MetricRecord {
+  id                     String    @id @default(uuid(7)) @db.Char(36)
+  organizationId         String    @map("organization_id") @db.Char(36)
+  subjectMembershipId    String    @map("subject_membership_id") @db.Char(36)
+  metricDefinitionId     String    @map("metric_definition_id") @db.Char(36)
+  value                  Decimal   @db.Decimal(14, 4)
+  recordedAt             DateTime  @map("recorded_at") @db.DateTime(3)
+  /// Soft reference to the record that produced it (e.g. "fitness.checkin" + id). Not a foreign key.
+  sourceType             String?   @map("source_type") @db.VarChar(60)
+  sourceId               String?   @map("source_id") @db.Char(36)
+  recordedByMembershipId String    @map("recorded_by_membership_id") @db.Char(36)
+  voidedAt               DateTime? @map("voided_at") @db.DateTime(3)
+  voidReason             String?   @map("void_reason") @db.VarChar(200)
+  createdAt              DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+
+  subject    Membership       @relation("MetricSubject", fields: [organizationId, subjectMembershipId], references: [organizationId, id])
+  recordedBy Membership       @relation("MetricRecorder", fields: [organizationId, recordedByMembershipId], references: [organizationId, id])
+  metric     MetricDefinition @relation(fields: [metricDefinitionId], references: [id])
+
+  @@unique([organizationId, id])
+  @@index([organizationId, subjectMembershipId, metricDefinitionId, recordedAt])
+  @@map("metric_records")
+}
+
+model Goal {
+  id                    String         @id @default(uuid(7)) @db.Char(36)
+  organizationId        String         @map("organization_id") @db.Char(36)
+  subjectMembershipId   String         @map("subject_membership_id") @db.Char(36)
+  metricDefinitionId    String?        @map("metric_definition_id") @db.Char(36)
+  title                 String         @db.VarChar(200)
+  description           String?        @db.VarChar(1000)
+  baselineValue         Decimal?       @map("baseline_value") @db.Decimal(14, 4)
+  targetValue           Decimal?       @map("target_value") @db.Decimal(14, 4)
+  direction             GoalDirection?
+  dueDate               DateTime?      @map("due_date") @db.Date
+  status                GoalStatus     @default(ACTIVE)
+  achievedAt            DateTime?      @map("achieved_at") @db.DateTime(3)
+  createdByMembershipId String         @map("created_by_membership_id") @db.Char(36)
+  createdAt             DateTime       @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt             DateTime       @updatedAt @map("updated_at") @db.DateTime(3)
+
+  subject    Membership        @relation("GoalSubject", fields: [organizationId, subjectMembershipId], references: [organizationId, id])
+  createdBy  Membership        @relation("GoalCreator", fields: [organizationId, createdByMembershipId], references: [organizationId, id])
+  metric     MetricDefinition? @relation(fields: [metricDefinitionId], references: [id])
+  milestones GoalMilestone[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, subjectMembershipId, status])
+  @@map("goals")
+}
+
+model GoalMilestone {
+  id             String    @id @default(uuid(7)) @db.Char(36)
+  organizationId String    @map("organization_id") @db.Char(36)
+  goalId         String    @map("goal_id") @db.Char(36)
+  title          String    @db.VarChar(200)
+  targetValue    Decimal?  @map("target_value") @db.Decimal(14, 4)
+  dueDate        DateTime? @map("due_date") @db.Date
+  achievedAt     DateTime? @map("achieved_at") @db.DateTime(3)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  goal Goal @relation(fields: [organizationId, goalId], references: [organizationId, id])
+
+  @@unique([organizationId, id])
+  @@index([goalId])
+  @@map("goal_milestones")
+}
+
+/// User-visible history ("who did what to which record"). Distinct from audit_logs (security trail).
+model ActivityEvent {
+  id                  String   @id @default(uuid(7)) @db.Char(36)
+  organizationId      String   @map("organization_id") @db.Char(36)
+  actorMembershipId   String?  @map("actor_membership_id") @db.Char(36)
+  verb                String   @db.VarChar(60)
+  entityType          String   @map("entity_type") @db.VarChar(40)
+  entityId            String   @map("entity_id") @db.Char(36)
+  subjectMembershipId String?  @map("subject_membership_id") @db.Char(36)
+  data                Json?
+  createdAt           DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  actor   Membership? @relation("ActivityActor", fields: [organizationId, actorMembershipId], references: [organizationId, id])
+  subject Membership? @relation("ActivitySubject", fields: [organizationId, subjectMembershipId], references: [organizationId, id])
+
+  @@index([organizationId, entityType, entityId, createdAt])
+  @@index([organizationId, subjectMembershipId, createdAt])
+  @@index([organizationId, createdAt])
+  @@map("activity_events")
+}
+
+/// Stores a type key and parameters, not text: it is rendered in each recipient's language when shown or sent.
+model Notification {
+  id             String    @id @default(uuid(7)) @db.Char(36)
+  userId         String    @map("user_id") @db.Char(36)
+  organizationId String?   @map("organization_id") @db.Char(36)
+  typeKey        String    @map("type_key") @db.VarChar(60)
+  params         Json?
+  /// Deep link data for clients, e.g. { "taskId": "…" }.
+  data           Json?
+  readAt         DateTime? @map("read_at") @db.DateTime(3)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id])
+
+  @@index([userId, readAt, createdAt])
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+/// scopeKey = organization id, or "all" for the user's default across organizations.
+model NotificationPreference {
+  id        String              @id @default(uuid(7)) @db.Char(36)
+  userId    String              @map("user_id") @db.Char(36)
+  scopeKey  String              @map("scope_key") @db.VarChar(40)
+  category  String              @db.VarChar(40)
+  channel   NotificationChannel
+  enabled   Boolean
+  createdAt DateTime            @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt DateTime            @updatedAt @map("updated_at") @db.DateTime(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, scopeKey, category, channel])
+  @@map("notification_preferences")
+}
+
+// ============================================================================ Phase 6a: Fitness module (fit_*)
+
+enum FitAssignmentStatus {
+  ACTIVE
+  CANCELLED
+}
+
+/// One per client membership. Goal, activity level and sex hold keys defined in @pt/domain (not DB enums, so the
+/// lists can grow without a migration). Health notes are encrypted at rest (AES-256-GCM, same key as MFA secrets).
+model FitClientProfile {
+  id               String    @id @default(uuid(7)) @db.Char(36)
+  organizationId   String    @map("organization_id") @db.Char(36)
+  membershipId     String    @map("membership_id") @db.Char(36)
+  dateOfBirth      DateTime? @map("date_of_birth") @db.Date
+  sex              String?   @db.VarChar(10)
+  heightCm         Decimal?  @map("height_cm") @db.Decimal(5, 1)
+  goalType         String?   @map("goal_type") @db.VarChar(30)
+  goalsText        String?   @map("goals_text") @db.VarChar(2000)
+  activityLevel    String?   @map("activity_level") @db.VarChar(20)
+  injuriesNotesEnc String?   @map("injuries_notes_enc") @db.Text
+  createdAt        DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  membership   Membership   @relation(fields: [organizationId, membershipId], references: [organizationId, id])
+
+  @@unique([organizationId, membershipId])
+  @@unique([organizationId, id])
+  @@map("fit_client_profiles")
+}
+
+/// MIXED: the seeded bilingual system library (organization_id NULL, scope_key "system") plus an organization's own
+/// exercises. Names are {en, ar?}. Archived exercises stay valid inside plans that already use them.
+model FitExercise {
+  id                    String    @id @default(uuid(7)) @db.Char(36)
+  organizationId        String?   @map("organization_id") @db.Char(36)
+  scopeKey              String    @map("scope_key") @db.VarChar(40)
+  /// Stable key of seeded exercises (used to upsert the library); NULL for custom ones.
+  key                   String?   @db.VarChar(80)
+  nameI18n              Json      @map("name_i18n")
+  muscleGroup           String    @map("muscle_group") @db.VarChar(20)
+  equipment             String    @db.VarChar(20)
+  instructionsI18n      Json?     @map("instructions_i18n")
+  videoUrl              String?   @map("video_url") @db.VarChar(500)
+  createdByMembershipId String?   @map("created_by_membership_id") @db.Char(36)
+  archivedAt            DateTime? @map("archived_at") @db.DateTime(3)
+  createdAt             DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  organization Organization?           @relation(fields: [organizationId], references: [id])
+  dayExercises FitWorkoutDayExercise[]
+
+  @@unique([scopeKey, key])
+  @@index([scopeKey, muscleGroup])
+  @@map("fit_exercises")
+}
+
+/// A reusable plan. Its content lives in versions; `currentVersionId` (no FK: it would be circular) points at the
+/// latest published one.
+model FitWorkoutPlan {
+  id                    String    @id @default(uuid(7)) @db.Char(36)
+  organizationId        String    @map("organization_id") @db.Char(36)
+  name                  String    @db.VarChar(120)
+  description           String?   @db.VarChar(1000)
+  currentVersionId      String?   @map("current_version_id") @db.Char(36)
+  createdByMembershipId String    @map("created_by_membership_id") @db.Char(36)
+  archivedAt            DateTime? @map("archived_at") @db.DateTime(3)
+  createdAt             DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  organization Organization            @relation(fields: [organizationId], references: [id])
+  createdBy    Membership              @relation("FitPlanCreator", fields: [organizationId, createdByMembershipId], references: [organizationId, id])
+  versions     FitWorkoutPlanVersion[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, archivedAt])
+  @@map("fit_workout_plans")
+}
+
+/// Drafts (publishedAt NULL) are editable; a published version is immutable, so what a client was assigned never
+/// changes. A change is a new version.
+model FitWorkoutPlanVersion {
+  id             String    @id @default(uuid(7)) @db.Char(36)
+  organizationId String    @map("organization_id") @db.Char(36)
+  planId         String    @map("plan_id") @db.Char(36)
+  versionNo      Int       @map("version_no")
+  publishedAt    DateTime? @map("published_at") @db.DateTime(3)
+  notes          String?   @db.VarChar(2000)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+
+  organization Organization           @relation(fields: [organizationId], references: [id])
+  plan         FitWorkoutPlan         @relation(fields: [organizationId, planId], references: [organizationId, id])
+  days         FitWorkoutDay[]
+  assignments  FitWorkoutAssignment[]
+
+  @@unique([planId, versionNo])
+  @@unique([organizationId, id])
+  @@map("fit_workout_plan_versions")
+}
+
+model FitWorkoutDay {
+  id             String  @id @default(uuid(7)) @db.Char(36)
+  organizationId String  @map("organization_id") @db.Char(36)
+  versionId      String  @map("version_id") @db.Char(36)
+  /// 1-based position within the version; the weekly schedule refers to it.
+  dayIndex       Int     @map("day_index")
+  name           String  @db.VarChar(80)
+  notes          String? @db.VarChar(1000)
+
+  organization Organization            @relation(fields: [organizationId], references: [id])
+  version      FitWorkoutPlanVersion   @relation(fields: [organizationId, versionId], references: [organizationId, id], onDelete: Cascade)
+  exercises    FitWorkoutDayExercise[]
+  sessions     FitWorkoutSession[]
+
+  @@unique([versionId, dayIndex])
+  @@unique([organizationId, id])
+  @@map("fit_workout_days")
+}
+
+model FitWorkoutDayExercise {
+  id             String   @id @default(uuid(7)) @db.Char(36)
+  organizationId String   @map("organization_id") @db.Char(36)
+  dayId          String   @map("day_id") @db.Char(36)
+  /// Mixed library (system or organization): plain foreign key, the service checks visibility.
+  exerciseId     String   @map("exercise_id") @db.Char(36)
+  position       Int
+  sets           Int
+  repsMin        Int      @map("reps_min")
+  repsMax        Int      @map("reps_max")
+  targetWeightKg Decimal? @map("target_weight_kg") @db.Decimal(6, 2)
+  restSeconds    Int      @map("rest_seconds")
+  tempo          String?  @db.VarChar(20)
+  supersetGroup  Int?     @map("superset_group")
+  notes          String?  @db.VarChar(500)
+
+  organization Organization       @relation(fields: [organizationId], references: [id])
+  day          FitWorkoutDay      @relation(fields: [organizationId, dayId], references: [organizationId, id], onDelete: Cascade)
+  exercise     FitExercise        @relation(fields: [exerciseId], references: [id])
+  setLogs      FitWorkoutSetLog[]
+
+  @@unique([dayId, position])
+  @@unique([organizationId, id])
+  @@map("fit_workout_day_exercises")
+}
+
+/// A published plan version given to one client. Assigning to many clients creates one row each, sharing batchId.
+model FitWorkoutAssignment {
+  id                     String              @id @default(uuid(7)) @db.Char(36)
+  organizationId         String              @map("organization_id") @db.Char(36)
+  versionId              String              @map("version_id") @db.Char(36)
+  clientMembershipId     String              @map("client_membership_id") @db.Char(36)
+  assignedByMembershipId String              @map("assigned_by_membership_id") @db.Char(36)
+  batchId                String?             @map("batch_id") @db.Char(36)
+  startDate              DateTime            @map("start_date") @db.Date
+  endDate                DateTime?           @map("end_date") @db.Date
+  /// { "<plan day number>": <ISO weekday 1-7> }
+  weeklySchedule         Json                @map("weekly_schedule")
+  status                 FitAssignmentStatus @default(ACTIVE)
+  createdAt              DateTime            @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt              DateTime            @updatedAt @map("updated_at") @db.DateTime(3)
+
+  organization Organization          @relation(fields: [organizationId], references: [id])
+  version      FitWorkoutPlanVersion @relation(fields: [organizationId, versionId], references: [organizationId, id])
+  client       Membership            @relation("FitAssignmentClient", fields: [organizationId, clientMembershipId], references: [organizationId, id])
+  assignedBy   Membership            @relation("FitAssignmentAssigner", fields: [organizationId, assignedByMembershipId], references: [organizationId, id])
+  sessions     FitWorkoutSession[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, clientMembershipId, status])
+  @@index([organizationId, versionId])
+  @@map("fit_workout_assignments")
+}
+
+model FitWorkoutSession {
+  id                 String    @id @default(uuid(7)) @db.Char(36)
+  organizationId     String    @map("organization_id") @db.Char(36)
+  assignmentId       String    @map("assignment_id") @db.Char(36)
+  dayId              String    @map("day_id") @db.Char(36)
+  clientMembershipId String    @map("client_membership_id") @db.Char(36)
+  scheduledDate      DateTime  @map("scheduled_date") @db.Date
+  startedAt          DateTime? @map("started_at") @db.DateTime(3)
+  completedAt        DateTime? @map("completed_at") @db.DateTime(3)
+  /// Rate of perceived exertion, 1-10.
+  rpe                Int?
+  notes              String?   @db.VarChar(1000)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  organization Organization         @relation(fields: [organizationId], references: [id])
+  assignment   FitWorkoutAssignment @relation(fields: [organizationId, assignmentId], references: [organizationId, id])
+  day          FitWorkoutDay        @relation(fields: [organizationId, dayId], references: [organizationId, id])
+  client       Membership           @relation("FitSessionClient", fields: [organizationId, clientMembershipId], references: [organizationId, id])
+  setLogs      FitWorkoutSetLog[]
+
+  @@unique([assignmentId, dayId, scheduledDate])
+  @@unique([organizationId, id])
+  @@index([organizationId, clientMembershipId, scheduledDate])
+  @@map("fit_workout_sessions")
+}
+
+model FitWorkoutSetLog {
+  id             String   @id @default(uuid(7)) @db.Char(36)
+  organizationId String   @map("organization_id") @db.Char(36)
+  sessionId      String   @map("session_id") @db.Char(36)
+  dayExerciseId  String   @map("day_exercise_id") @db.Char(36)
+  setNo          Int      @map("set_no")
+  repsDone       Int      @map("reps_done")
+  weightKg       Decimal? @map("weight_kg") @db.Decimal(6, 2)
+  completedAt    DateTime @default(now()) @map("completed_at") @db.DateTime(3)
+
+  organization Organization          @relation(fields: [organizationId], references: [id])
+  session      FitWorkoutSession     @relation(fields: [organizationId, sessionId], references: [organizationId, id])
+  dayExercise  FitWorkoutDayExercise @relation(fields: [organizationId, dayExerciseId], references: [organizationId, id])
+
+  @@unique([sessionId, dayExerciseId, setNo])
+  @@index([organizationId, dayExerciseId])
+  @@map("fit_workout_set_logs")
+}
+
+// ============================================================================ Phase 6b: nutrition and check-ins
+
+enum FitMealLogStatus {
+  COMPLETED
+  PARTIAL
+  SKIPPED
+}
+
+enum FitCheckinStatus {
+  DRAFT
+  SUBMITTED
+  REVIEWED
+}
+
+/// Same pattern as workout plans: content lives in immutable-once-published versions.
+model FitNutritionPlan {
+  id                    String    @id @default(uuid(7)) @db.Char(36)
+  organizationId        String    @map("organization_id") @db.Char(36)
+  name                  String    @db.VarChar(120)
+  description           String?   @db.VarChar(1000)
+  currentVersionId      String?   @map("current_version_id") @db.Char(36)
+  createdByMembershipId String    @map("created_by_membership_id") @db.Char(36)
+  archivedAt            DateTime? @map("archived_at") @db.DateTime(3)
+  createdAt             DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  organization Organization              @relation(fields: [organizationId], references: [id])
+  createdBy    Membership                @relation("FitNutritionPlanCreator", fields: [organizationId, createdByMembershipId], references: [organizationId, id])
+  versions     FitNutritionPlanVersion[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, archivedAt])
+  @@map("fit_nutrition_plans")
+}
+
+model FitNutritionPlanVersion {
+  id             String    @id @default(uuid(7)) @db.Char(36)
+  organizationId String    @map("organization_id") @db.Char(36)
+  planId         String    @map("plan_id") @db.Char(36)
+  versionNo      Int       @map("version_no")
+  publishedAt    DateTime? @map("published_at") @db.DateTime(3)
+  notes          String?   @db.VarChar(2000)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+
+  organization Organization             @relation(fields: [organizationId], references: [id])
+  plan         FitNutritionPlan         @relation(fields: [organizationId, planId], references: [organizationId, id])
+  days         FitNutritionDay[]
+  assignments  FitNutritionAssignment[]
+
+  @@unique([planId, versionNo])
+  @@unique([organizationId, id])
+  @@map("fit_nutrition_plan_versions")
+}
+
+/// One row per weekday that has a plan (ISO 1-7). A weekday without a row is a free day.
+model FitNutritionDay {
+  id             String  @id @default(uuid(7)) @db.Char(36)
+  organizationId String  @map("organization_id") @db.Char(36)
+  versionId      String  @map("version_id") @db.Char(36)
+  weekday        Int
+  notes          String? @db.VarChar(1000)
+
+  organization Organization            @relation(fields: [organizationId], references: [id])
+  version      FitNutritionPlanVersion @relation(fields: [organizationId, versionId], references: [organizationId, id], onDelete: Cascade)
+  meals        FitMeal[]
+
+  @@unique([versionId, weekday])
+  @@unique([organizationId, id])
+  @@map("fit_nutrition_days")
+}
+
+model FitMeal {
+  id             String  @id @default(uuid(7)) @db.Char(36)
+  organizationId String  @map("organization_id") @db.Char(36)
+  dayId          String  @map("day_id") @db.Char(36)
+  mealType       String  @map("meal_type") @db.VarChar(12)
+  position       Int
+  timeOfDay      String? @map("time_of_day") @db.VarChar(5)
+  notes          String? @db.VarChar(500)
+
+  organization Organization    @relation(fields: [organizationId], references: [id])
+  day          FitNutritionDay @relation(fields: [organizationId, dayId], references: [organizationId, id], onDelete: Cascade)
+  items        FitMealItem[]
+  logs         FitMealLog[]
+
+  @@unique([dayId, position])
+  @@unique([organizationId, id])
+  @@map("fit_meals")
+}
+
+model FitMealItem {
+  id             String   @id @default(uuid(7)) @db.Char(36)
+  organizationId String   @map("organization_id") @db.Char(36)
+  mealId         String   @map("meal_id") @db.Char(36)
+  position       Int
+  name           String   @db.VarChar(120)
+  quantity       Decimal? @db.Decimal(10, 2)
+  unit           String?  @db.VarChar(20)
+  calories       Int?
+  proteinG       Decimal? @map("protein_g") @db.Decimal(6, 1)
+  carbsG         Decimal? @map("carbs_g") @db.Decimal(6, 1)
+  fatG           Decimal? @map("fat_g") @db.Decimal(6, 1)
+  notes          String?  @db.VarChar(300)
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  meal         FitMeal      @relation(fields: [organizationId, mealId], references: [organizationId, id], onDelete: Cascade)
+
+  @@unique([mealId, position])
+  @@map("fit_meal_items")
+}
+
+model FitNutritionAssignment {
+  id                     String              @id @default(uuid(7)) @db.Char(36)
+  organizationId         String              @map("organization_id") @db.Char(36)
+  versionId              String              @map("version_id") @db.Char(36)
+  clientMembershipId     String              @map("client_membership_id") @db.Char(36)
+  assignedByMembershipId String              @map("assigned_by_membership_id") @db.Char(36)
+  batchId                String?             @map("batch_id") @db.Char(36)
+  startDate              DateTime            @map("start_date") @db.Date
+  endDate                DateTime?           @map("end_date") @db.Date
+  status                 FitAssignmentStatus @default(ACTIVE)
+  createdAt              DateTime            @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt              DateTime            @updatedAt @map("updated_at") @db.DateTime(3)
+
+  organization Organization            @relation(fields: [organizationId], references: [id])
+  version      FitNutritionPlanVersion @relation(fields: [organizationId, versionId], references: [organizationId, id])
+  client       Membership              @relation("FitNutritionClient", fields: [organizationId, clientMembershipId], references: [organizationId, id])
+  assignedBy   Membership              @relation("FitNutritionAssigner", fields: [organizationId, assignedByMembershipId], references: [organizationId, id])
+  logs         FitMealLog[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, clientMembershipId, status])
+  @@map("fit_nutrition_assignments")
+}
+
+model FitMealLog {
+  id                 String           @id @default(uuid(7)) @db.Char(36)
+  organizationId     String           @map("organization_id") @db.Char(36)
+  assignmentId       String           @map("assignment_id") @db.Char(36)
+  mealId             String           @map("meal_id") @db.Char(36)
+  clientMembershipId String           @map("client_membership_id") @db.Char(36)
+  logDate            DateTime         @map("log_date") @db.Date
+  status             FitMealLogStatus
+  notes              String?          @db.VarChar(500)
+  createdAt          DateTime         @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt          DateTime         @updatedAt @map("updated_at") @db.DateTime(3)
+
+  organization Organization           @relation(fields: [organizationId], references: [id])
+  assignment   FitNutritionAssignment @relation(fields: [organizationId, assignmentId], references: [organizationId, id])
+  meal         FitMeal                @relation(fields: [organizationId, mealId], references: [organizationId, id])
+  client       Membership             @relation("FitMealLogClient", fields: [organizationId, clientMembershipId], references: [organizationId, id])
+  photos       FitMealLogPhoto[]
+
+  @@unique([assignmentId, mealId, logDate])
+  @@unique([organizationId, id])
+  @@index([organizationId, clientMembershipId, logDate])
+  @@map("fit_meal_logs")
+}
+
+model FitMealLogPhoto {
+  mealLogId      String   @map("meal_log_id") @db.Char(36)
+  fileId         String   @map("file_id") @db.Char(36)
+  organizationId String   @map("organization_id") @db.Char(36)
+  createdAt      DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  mealLog      FitMealLog   @relation(fields: [organizationId, mealLogId], references: [organizationId, id], onDelete: Cascade)
+  file         File         @relation(fields: [organizationId, fileId], references: [organizationId, id])
+
+  @@id([mealLogId, fileId])
+  @@index([organizationId, fileId])
+  @@map("fit_meal_log_photos")
+}
+
+/// One per client and week (the week starts on the organization's first day of the week, in its time zone).
+/// Measurements live in the draft until submission, when they become measurement records (source "fit.checkin").
+model FitCheckin {
+  id                     String           @id @default(uuid(7)) @db.Char(36)
+  organizationId         String           @map("organization_id") @db.Char(36)
+  clientMembershipId     String           @map("client_membership_id") @db.Char(36)
+  weekStartDate          DateTime         @map("week_start_date") @db.Date
+  status                 FitCheckinStatus @default(DRAFT)
+  draftMeasurements      Json?            @map("draft_measurements")
+  clientNotes            String?          @map("client_notes") @db.VarChar(2000)
+  submittedAt            DateTime?        @map("submitted_at") @db.DateTime(3)
+  workoutAdherencePct    Int?             @map("workout_adherence_pct")
+  nutritionAdherencePct  Int?             @map("nutrition_adherence_pct")
+  reviewedByMembershipId String?          @map("reviewed_by_membership_id") @db.Char(36)
+  reviewedAt             DateTime?        @map("reviewed_at") @db.DateTime(3)
+  trainerFeedback        String?          @map("trainer_feedback") @db.VarChar(2000)
+  createdAt              DateTime         @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt              DateTime         @updatedAt @map("updated_at") @db.DateTime(3)
+
+  organization Organization        @relation(fields: [organizationId], references: [id])
+  client       Membership          @relation("FitCheckinClient", fields: [organizationId, clientMembershipId], references: [organizationId, id])
+  reviewer     Membership?         @relation("FitCheckinReviewer", fields: [organizationId, reviewedByMembershipId], references: [organizationId, id])
+  comments     FitCheckinComment[]
+  photos       FitProgressPhoto[]
+
+  @@unique([organizationId, clientMembershipId, weekStartDate])
+  @@unique([organizationId, id])
+  @@index([organizationId, status, submittedAt])
+  @@map("fit_checkins")
+}
+
+model FitCheckinComment {
+  id                 String   @id @default(uuid(7)) @db.Char(36)
+  organizationId     String   @map("organization_id") @db.Char(36)
+  checkinId          String   @map("checkin_id") @db.Char(36)
+  authorMembershipId String   @map("author_membership_id") @db.Char(36)
+  body               String   @db.VarChar(2000)
+  createdAt          DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  checkin      FitCheckin   @relation(fields: [organizationId, checkinId], references: [organizationId, id], onDelete: Cascade)
+  author       Membership   @relation("FitCheckinCommentAuthor", fields: [organizationId, authorMembershipId], references: [organizationId, id])
+
+  @@index([organizationId, checkinId, createdAt])
+  @@map("fit_checkin_comments")
+}
+
+/// Metadata of a progress photo. The image itself is a SENSITIVE file (EXIF removed, private, every access audited).
+model FitProgressPhoto {
+  id                 String   @id @default(uuid(7)) @db.Char(36)
+  organizationId     String   @map("organization_id") @db.Char(36)
+  clientMembershipId String   @map("client_membership_id") @db.Char(36)
+  fileId             String   @map("file_id") @db.Char(36)
+  kind               String   @db.VarChar(10)
+  angle              String   @db.VarChar(10)
+  takenOn            DateTime @map("taken_on") @db.Date
+  checkinId          String?  @map("checkin_id") @db.Char(36)
+  createdAt          DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  client       Membership   @relation("FitPhotoClient", fields: [organizationId, clientMembershipId], references: [organizationId, id])
+  file         File         @relation(fields: [organizationId, fileId], references: [organizationId, id])
+  checkin      FitCheckin?  @relation(fields: [organizationId, checkinId], references: [organizationId, id])
+
+  @@unique([organizationId, fileId])
+  @@index([organizationId, clientMembershipId, takenOn])
+  @@map("fit_progress_photos")
+}
+
+/// Remembers which reminder was already sent (one row per reminder), so a repeated scheduler run never sends twice.
+model FitReminderMark {
+  id             String   @id @default(uuid(7)) @db.Char(36)
+  organizationId String   @map("organization_id") @db.Char(36)
+  key            String   @db.VarChar(120)
+  createdAt      DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, key])
+  @@map("fit_reminder_marks")
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Messaging (Phase 7)
+// ---------------------------------------------------------------------------------------------------------------
+
+/// A private conversation inside one organization. DIRECT = exactly two members; `directKey` ("smallerId:largerId")
+/// makes the pair unique, so starting the same conversation twice finds the existing one.
+model Conversation {
+  id                    String    @id @default(uuid(7)) @db.Char(36)
+  organizationId        String    @map("organization_id") @db.Char(36)
+  type                  String    @default("DIRECT") @db.VarChar(10)
+  directKey             String?   @map("direct_key") @db.VarChar(73)
+  createdByMembershipId String    @map("created_by_membership_id") @db.Char(36)
+  lastMessageAt         DateTime? @map("last_message_at") @db.DateTime(3)
+  createdAt             DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+
+  organization Organization              @relation(fields: [organizationId], references: [id])
+  createdBy    Membership                @relation("ConversationCreator", fields: [organizationId, createdByMembershipId], references: [organizationId, id])
+  participants ConversationParticipant[]
+  messages     Message[]
+  reports      MessageReport[]
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, directKey])
+  @@index([organizationId, lastMessageAt])
+  @@map("conversations")
+}
+
+/// Membership of a conversation. Read status is one marker per person (no row per message): unread = messages
+/// from others with an id after `lastReadMessageId` (UUIDv7 ids sort by time).
+model ConversationParticipant {
+  conversationId    String    @map("conversation_id") @db.Char(36)
+  membershipId      String    @map("membership_id") @db.Char(36)
+  organizationId    String    @map("organization_id") @db.Char(36)
+  lastReadMessageId String?   @map("last_read_message_id") @db.Char(36)
+  lastReadAt        DateTime? @map("last_read_at") @db.DateTime(3)
+  mutedUntil        DateTime? @map("muted_until") @db.DateTime(3)
+  joinedAt          DateTime  @default(now()) @map("joined_at") @db.DateTime(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  conversation Conversation @relation(fields: [organizationId, conversationId], references: [organizationId, id], onDelete: Cascade)
+  membership   Membership   @relation(fields: [organizationId, membershipId], references: [organizationId, id])
+
+  @@id([conversationId, membershipId])
+  @@index([organizationId, membershipId])
+  @@map("conversation_participants")
+}
+
+/// A message. Deleting one keeps the row as a tombstone (body cleared) so the thread and read markers stay coherent.
+model Message {
+  id                 String    @id @default(uuid(7)) @db.Char(36)
+  organizationId     String    @map("organization_id") @db.Char(36)
+  conversationId     String    @map("conversation_id") @db.Char(36)
+  senderMembershipId String    @map("sender_membership_id") @db.Char(36)
+  kind               String    @default("TEXT") @db.VarChar(10)
+  body               String    @db.VarChar(4000)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  deletedAt          DateTime? @map("deleted_at") @db.DateTime(3)
+
+  organization Organization        @relation(fields: [organizationId], references: [id])
+  conversation Conversation        @relation(fields: [organizationId, conversationId], references: [organizationId, id], onDelete: Cascade)
+  sender       Membership          @relation("MessageSender", fields: [organizationId, senderMembershipId], references: [organizationId, id])
+  attachments  MessageAttachment[]
+  reports      MessageReport[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, conversationId, id])
+  @@map("messages")
+}
+
+model MessageAttachment {
+  messageId      String   @map("message_id") @db.Char(36)
+  fileId         String   @map("file_id") @db.Char(36)
+  organizationId String   @map("organization_id") @db.Char(36)
+  createdAt      DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  message      Message      @relation(fields: [organizationId, messageId], references: [organizationId, id], onDelete: Cascade)
+  file         File         @relation(fields: [organizationId, fileId], references: [organizationId, id])
+
+  @@id([messageId, fileId])
+  @@index([organizationId, fileId])
+  @@map("message_attachments")
+}
+
+/// "I do not want messages from this person." One row per pair and direction; the blocked person simply cannot send.
+model MessageBlock {
+  blockerMembershipId String   @map("blocker_membership_id") @db.Char(36)
+  blockedMembershipId String   @map("blocked_membership_id") @db.Char(36)
+  organizationId      String   @map("organization_id") @db.Char(36)
+  createdAt           DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  blocker      Membership   @relation("BlockBlocker", fields: [organizationId, blockerMembershipId], references: [organizationId, id])
+  blocked      Membership   @relation("BlockBlocked", fields: [organizationId, blockedMembershipId], references: [organizationId, id])
+
+  @@id([blockerMembershipId, blockedMembershipId])
+  @@index([organizationId, blockedMembershipId])
+  @@map("message_blocks")
+}
+
+/// A report of one message by the person it was sent to. It keeps a SNAPSHOT of what was reported (the sender may delete
+/// the original), and gives moderators nothing else of the conversation.
+model MessageReport {
+  id                     String    @id @default(uuid(7)) @db.Char(36)
+  organizationId         String    @map("organization_id") @db.Char(36)
+  conversationId         String    @map("conversation_id") @db.Char(36)
+  messageId              String    @map("message_id") @db.Char(36)
+  reporterMembershipId   String    @map("reporter_membership_id") @db.Char(36)
+  reportedMembershipId   String    @map("reported_membership_id") @db.Char(36)
+  reason                 String    @db.VarChar(20)
+  note                   String?   @db.VarChar(500)
+  snapshotBody           String    @map("snapshot_body") @db.VarChar(4000)
+  snapshotAttachments    Json?     @map("snapshot_attachments")
+  status                 String    @default("OPEN") @db.VarChar(10)
+  resolvedByMembershipId String?   @map("resolved_by_membership_id") @db.Char(36)
+  resolvedAt             DateTime? @map("resolved_at") @db.DateTime(3)
+  resolutionNote         String?   @map("resolution_note") @db.VarChar(500)
+  createdAt              DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  conversation Conversation @relation(fields: [organizationId, conversationId], references: [organizationId, id])
+  message      Message      @relation(fields: [organizationId, messageId], references: [organizationId, id])
+  reporter     Membership   @relation("ReportReporter", fields: [organizationId, reporterMembershipId], references: [organizationId, id])
+  reported     Membership   @relation("ReportReported", fields: [organizationId, reportedMembershipId], references: [organizationId, id])
+  resolver     Membership?  @relation("ReportResolver", fields: [organizationId, resolvedByMembershipId], references: [organizationId, id])
+
+  @@unique([messageId, reporterMembershipId])
+  @@index([organizationId, status, createdAt])
+  @@map("message_reports")
+}
+
+// ============================================================================ Phase 7b: admin control center
+/// Platform-wide switch for a feature. Rows are created at boot from the registry in @pt/domain (`FEATURE_FLAGS`);
+/// a value an administrator set is never overwritten.
+model FeatureFlag {
+  key             String   @id @db.VarChar(60)
+  enabled         Boolean
+  updatedByUserId String?  @map("updated_by_user_id") @db.Char(36)
+  createdAt       DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+
+  overrides OrganizationFeatureOverride[]
+
+  @@map("feature_flags")
+}
+
+/// Per-organization exception to a platform flag (an organization-scope flag only). Written by administrators,
+/// read by services that always filter by organization.
+model OrganizationFeatureOverride {
+  organizationId  String   @map("organization_id") @db.Char(36)
+  flagKey         String   @map("flag_key") @db.VarChar(60)
+  enabled         Boolean
+  updatedByUserId String?  @map("updated_by_user_id") @db.Char(36)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  flag         FeatureFlag  @relation(fields: [flagKey], references: [key], onDelete: Cascade)
+
+  @@id([organizationId, flagKey])
+  @@map("organization_feature_overrides")
+}
+
+/// Typed JSON documents keyed `identity`, `theme`, `mail`; validated by @pt/domain before every write.
+model PlatformSetting {
+  key             String   @id @db.VarChar(60)
+  value           Json
+  updatedByUserId String?  @map("updated_by_user_id") @db.Char(36)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+
+  @@map("platform_settings")
+}
+
+/// Small binary assets of the platform itself (the logo). Not tenant data and never user uploads.
+model PlatformAsset {
+  key             String   @id @db.VarChar(40)
+  mimeType        String   @map("mime_type") @db.VarChar(40)
+  data            Bytes    @db.LongBlob
+  sha256          String   @db.Char(64)
+  updatedByUserId String?  @map("updated_by_user_id") @db.Char(36)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+
+  @@map("platform_assets")
+}
+
+/// An administrator's wording for one e-mail template in one language. No row = the built-in default.
+model EmailTemplate {
+  templateKey     String   @map("template_key") @db.VarChar(40)
+  locale          String   @db.VarChar(8)
+  subject         String   @db.VarChar(200)
+  body            String   @db.Text
+  actionLabel     String   @default("") @map("action_label") @db.VarChar(60)
+  updatedByUserId String?  @map("updated_by_user_id") @db.Char(36)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+
+  @@id([templateKey, locale])
+  @@map("email_templates")
+}
+
+// ============================================================================ Phase 8a: Coaching module
+enum CoachSessionStatus {
+  PLANNED
+  HELD
+  CANCELLED
+}
+
+enum CoachNoteVisibility {
+  PRIVATE
+  SHARED
+}
+
+enum CoachAssessmentStatus {
+  REQUESTED
+  COMPLETED
+  CANCELLED
+}
+
+/// One coaching session between a coach and a client. Reminders are sent once each (`reminder*SentAt`).
+model CoachSession {
+  id                 String             @id @default(uuid(7)) @db.Char(36)
+  organizationId     String             @map("organization_id") @db.Char(36)
+  coachMembershipId  String             @map("coach_membership_id") @db.Char(36)
+  clientMembershipId String             @map("client_membership_id") @db.Char(36)
+  startsAt           DateTime           @map("starts_at") @db.DateTime(3)
+  durationMinutes    Int                @map("duration_minutes")
+  location           String?            @db.VarChar(255)
+  agenda             String?            @db.VarChar(1000)
+  status             CoachSessionStatus @default(PLANNED)
+  cancelReason       String?            @map("cancel_reason") @db.VarChar(300)
+  reminderDaySentAt  DateTime?          @map("reminder_day_sent_at") @db.DateTime(3)
+  reminderSoonSentAt DateTime?          @map("reminder_soon_sent_at") @db.DateTime(3)
+  createdAt          DateTime           @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt          DateTime           @updatedAt @map("updated_at") @db.DateTime(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  coach        Membership   @relation("CoachSessionCoach", fields: [organizationId, coachMembershipId], references: [organizationId, id])
+  client       Membership   @relation("CoachSessionClient", fields: [organizationId, clientMembershipId], references: [organizationId, id])
+  notes        CoachNote[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, clientMembershipId, startsAt])
+  @@index([organizationId, coachMembershipId, startsAt])
+  @@index([organizationId, status, startsAt])
+  @@map("coach_sessions")
+}
+
+/// A coach's note about a client. PRIVATE bodies are encrypted at rest (same key as MFA secrets) and only the author or
+/// holders of `coaching.note.private.read` at organization scope can read them; SHARED notes are visible to the client.
+model CoachNote {
+  id                 String              @id @default(uuid(7)) @db.Char(36)
+  organizationId     String              @map("organization_id") @db.Char(36)
+  clientMembershipId String              @map("client_membership_id") @db.Char(36)
+  authorMembershipId String              @map("author_membership_id") @db.Char(36)
+  sessionId          String?             @map("session_id") @db.Char(36)
+  visibility         CoachNoteVisibility
+  body               String              @db.Text
+  createdAt          DateTime            @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt          DateTime            @updatedAt @map("updated_at") @db.DateTime(3)
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  client       Membership    @relation("CoachNoteClient", fields: [organizationId, clientMembershipId], references: [organizationId, id])
+  author       Membership    @relation("CoachNoteAuthor", fields: [organizationId, authorMembershipId], references: [organizationId, id])
+  session      CoachSession? @relation(fields: [organizationId, sessionId], references: [organizationId, id])
+
+  @@unique([organizationId, id])
+  @@index([organizationId, clientMembershipId, createdAt])
+  @@index([organizationId, sessionId])
+  @@map("coach_notes")
+}
+
+/// A reusable questionnaire. Questions are validated by @pt/domain (`validateQuestions`) and stored as JSON.
+model CoachAssessmentTemplate {
+  id                    String    @id @default(uuid(7)) @db.Char(36)
+  organizationId        String    @map("organization_id") @db.Char(36)
+  name                  String    @db.VarChar(120)
+  description           String?   @db.VarChar(500)
+  questions             Json
+  createdByMembershipId String    @map("created_by_membership_id") @db.Char(36)
+  archivedAt            DateTime? @map("archived_at") @db.DateTime(3)
+  createdAt             DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  organization Organization      @relation(fields: [organizationId], references: [id])
+  creator      Membership        @relation("CoachTemplateCreator", fields: [organizationId, createdByMembershipId], references: [organizationId, id])
+  assessments  CoachAssessment[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, archivedAt])
+  @@map("coach_assessment_templates")
+}
+
+/// One questionnaire asked of one client. The questions are copied in (`questions`), so editing the template later never
+/// changes what a client answered. With `cadenceDays`, finishing it creates the next one automatically.
+model CoachAssessment {
+  id                      String                @id @default(uuid(7)) @db.Char(36)
+  organizationId          String                @map("organization_id") @db.Char(36)
+  templateId              String                @map("template_id") @db.Char(36)
+  clientMembershipId      String                @map("client_membership_id") @db.Char(36)
+  requestedByMembershipId String                @map("requested_by_membership_id") @db.Char(36)
+  title                   String                @db.VarChar(120)
+  questions               Json
+  answers                 Json?
+  status                  CoachAssessmentStatus @default(REQUESTED)
+  cadenceDays             Int?                  @map("cadence_days")
+  dueAt                   DateTime?             @map("due_at") @db.DateTime(3)
+  requestedAt             DateTime              @default(now()) @map("requested_at") @db.DateTime(3)
+  completedAt             DateTime?             @map("completed_at") @db.DateTime(3)
+  createdAt               DateTime              @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt               DateTime              @updatedAt @map("updated_at") @db.DateTime(3)
+
+  organization Organization            @relation(fields: [organizationId], references: [id])
+  template     CoachAssessmentTemplate @relation(fields: [organizationId, templateId], references: [organizationId, id])
+  client       Membership              @relation("CoachAssessmentClient", fields: [organizationId, clientMembershipId], references: [organizationId, id])
+  requester    Membership              @relation("CoachAssessmentRequester", fields: [organizationId, requestedByMembershipId], references: [organizationId, id])
+
+  @@unique([organizationId, id])
+  @@index([organizationId, clientMembershipId, status, requestedAt])
+  @@index([organizationId, templateId])
+  @@map("coach_assessments")
+}
+
+/// A link or a file a coach shares: with one client, or (no client) with every client assigned to the coach.
+model CoachResource {
+  id                    String    @id @default(uuid(7)) @db.Char(36)
+  organizationId        String    @map("organization_id") @db.Char(36)
+  createdByMembershipId String    @map("created_by_membership_id") @db.Char(36)
+  clientMembershipId    String?   @map("client_membership_id") @db.Char(36)
+  title                 String    @db.VarChar(160)
+  description           String?   @db.VarChar(500)
+  url                   String?   @db.VarChar(500)
+  fileId                String?   @unique @map("file_id") @db.Char(36)
+  archivedAt            DateTime? @map("archived_at") @db.DateTime(3)
+  createdAt             DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  creator      Membership   @relation("CoachResourceCreator", fields: [organizationId, createdByMembershipId], references: [organizationId, id])
+  client       Membership?  @relation("CoachResourceClient", fields: [organizationId, clientMembershipId], references: [organizationId, id])
+  file         File?        @relation(fields: [organizationId, fileId], references: [organizationId, id])
+
+  @@unique([organizationId, id])
+  @@index([organizationId, createdByMembershipId, archivedAt])
+  @@index([organizationId, clientMembershipId, archivedAt])
+  @@map("coach_resources")
+}
+
+// ============================================================================ Phase 7c: design system
+/// A complete design (semantic colour tokens for light and dark, radius, font). Built-in rows (`builtInKey` set) are
+/// created at boot from @pt/domain and can be edited and reset; others are created by administrators.
+model DesignTheme {
+  key             String   @id @db.VarChar(40)
+  name            String   @db.VarChar(60)
+  description     String   @default("") @db.VarChar(200)
+  builtInKey      String?  @map("built_in_key") @db.VarChar(40)
+  /// Offered to people as a personal choice (Profile → Appearance). Built-in designs start available; custom ones are opt-in.
+  userSelectable  Boolean  @default(false) @map("user_selectable")
+  /// { radius, font, light: {tokens}, dark: {tokens} }, validated by validateDesign before every write.
+  definition      Json
+  updatedByUserId String?  @map("updated_by_user_id") @db.Char(36)
+  createdAt       DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+
+  organizations OrganizationDesign[]
+  users         User[]
+
+  @@map("design_themes")
+}
+
+/// The design one organization uses instead of the platform default.
+model OrganizationDesign {
+  organizationId  String   @id @map("organization_id") @db.Char(36)
+  themeKey        String   @map("theme_key") @db.VarChar(40)
+  updatedByUserId String?  @map("updated_by_user_id") @db.Char(36)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  theme        DesignTheme  @relation(fields: [themeKey], references: [key], onDelete: Restrict)
+
+  @@index([themeKey])
+  @@map("organization_designs")
+}

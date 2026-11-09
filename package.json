@@ -1,0 +1,25 @@
+{
+  "name": "personal-trainer",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Multi-tenant business management and progress tracking SaaS",
+  "packageManager": "pnpm@10.34.7",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "check": "turbo run typecheck lint test",
+    "dev": "pnpm infra:up && turbo run dev --filter=@pt/api --filter=@pt/web",
+    "infra:up": "docker compose -f infra/docker-compose.yml up -d --wait",
+    "infra:down": "docker compose -f infra/docker-compose.yml down",
+    "db:migrate": "pnpm --filter @pt/api db:migrate",
+    "db:deploy": "pnpm --filter @pt/api db:deploy",
+    "openapi:export": "pnpm --filter @pt/api openapi:export"
+  },
+  "devDependencies": {
+    "turbo": "^2.11.10",
+    "prettier": "^3.4.2"
+  }
+}

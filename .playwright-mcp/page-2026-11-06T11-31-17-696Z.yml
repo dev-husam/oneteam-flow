@@ -1,0 +1,48 @@
+- generic [ref=f7e1]:
+  - generic [ref=f7e16]:
+    - link "Skip to content" [ref=f7e17] [cursor=pointer]:
+      - /url: "#main"
+    - complementary [ref=f7e18]:
+      - generic [ref=f7e19]:
+        - generic [ref=f7e20]: Personal Trainer
+        - navigation "Main navigation" [ref=f7e25]:
+          - link "Dashboard" [ref=f7e26] [cursor=pointer]:
+            - /url: /en/dashboard
+          - link "Profile" [ref=f7e32] [cursor=pointer]:
+            - /url: /en/profile
+          - link "Security" [ref=f7e36] [cursor=pointer]:
+            - /url: /en/security
+    - generic [ref=f7e40]:
+      - banner [ref=f7e41]:
+        - generic [ref=f7e42]:
+          - radiogroup "Language" [ref=f7e43]:
+            - radio "English" [checked] [ref=f7e44]
+            - radio "العربية" [ref=f7e45]
+          - radiogroup "Theme" [ref=f7e46]:
+            - radio "Light" [ref=f7e47]
+            - radio "System" [ref=f7e54]
+            - radio "Dark" [checked] [active] [ref=f7e57]
+          - button "User menu" [ref=f7e61]:
+            - generic [ref=f7e62]: SA
+            - generic [ref=f7e63]: Sara Ahmed
+      - main [ref=f7e66]:
+        - generic [ref=f7e67]:
+          - generic [ref=f7e68]:
+            - heading "Security" [level=1] [ref=f7e69]
+            - paragraph [ref=f7e70]: Devices where your account is signed in.
+          - button "Sign out everywhere" [ref=f7e72]
+        - generic [ref=f7e73]:
+          - generic [ref=f7e74]:
+            - heading "Active sessions" [level=2] [ref=f7e75]
+            - paragraph [ref=f7e76]: This also signs out this device.
+          - list [ref=f7e78]:
+            - listitem [ref=f7e79]:
+              - generic [ref=f7e84]:
+                - paragraph [ref=f7e85]:
+                  - text: Web browser
+                  - generic [ref=f7e86]: This device
+                - paragraph [ref=f7e87]:
+                  - text: Last active now
+                  - generic [ref=f7e88]: · ::1
+  - button "Open Next.js Dev Tools" [ref=f7e11] [cursor=pointer]
+  - alert [ref=f7e15]

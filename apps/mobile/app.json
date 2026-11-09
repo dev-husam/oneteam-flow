@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "Personal Trainer",
+    "slug": "personal-trainer",
+    "scheme": "personaltrainer",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "bundleIdentifier": "com.example.personaltrainer",
+      "supportsTablet": true,
+      "infoPlist": { "CFBundleAllowMixedLocalizations": true }
+    },
+    "android": {
+      "package": "com.example.personaltrainer",
+      "softwareKeyboardLayoutMode": "resize"
+    },
+    "locales": { "en": "./locales/en.json", "ar": "./locales/ar.json" },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-localization",
+      ["expo-notifications", { "color": "#2c59e8" }],
+      ["expo-image-picker", { "cameraPermission": "Personal Trainer uses the camera so you can add progress and meal photos.", "photosPermission": "Personal Trainer uses your photos so you can add progress and meal photos.", "microphonePermission": false }]
+    ],
+    "extra": {
+      "eas": { "projectId": "" }
+    }
+  }
+}

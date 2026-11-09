@@ -1,0 +1,46 @@
+# Local development infrastructure. Application processes run on the host (pnpm dev).
+name: personal-trainer
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root_dev_password
+      MYSQL_DATABASE: pt_dev
+      MYSQL_USER: pt
+      MYSQL_PASSWORD: pt_dev_password
+    command: ['--character-set-server=utf8mb4', '--collation-server=utf8mb4_0900_ai_ci', '--log-bin=mysql-bin', '--binlog-expire-logs-seconds=604800']
+    ports: ['3307:3306']
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-uroot', '-proot_dev_password']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # BullMQ requires noeviction. Cache keys always carry a TTL.
+    command: ['redis-server', '--appendonly', 'yes', '--maxmemory-policy', 'noeviction']
+    ports: ['6380:6379']
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # S3-compatible object storage emulator is added in Phase 5 (the official MinIO image is no longer
+  # published to Docker Hub/quay; the replacement is chosen when the file service is built).
+
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports: ['1025:1025', '8025:8025']
+
+volumes:
+  mysql-data:
+  redis-data:

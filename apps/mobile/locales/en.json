@@ -1,0 +1,5 @@
+{
+  "CFBundleDisplayName": "Personal Trainer",
+  "NSCameraUsageDescription": "Personal Trainer uses the camera so you can add progress and meal photos.",
+  "NSPhotoLibraryUsageDescription": "Personal Trainer uses your photos so you can add progress and meal photos."
+}
